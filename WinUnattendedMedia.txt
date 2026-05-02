@@ -1,0 +1,93 @@
+================================================================================
+GUIDE: CREATING AN UNATTENDED WINDOWS ISO WITH INTEGRATED DRIVERS
+================================================================================
+
+This guide outlines the professional procedure for creating a "Zero Touch" 
+Windows installation media using the Windows ADK and DISM.
+
+--------------------------------------------------------------------------------
+1. PREPARATION
+--------------------------------------------------------------------------------
+Create the following directory structure:
+C:\Build\ISO      - Extract your original Windows ISO here.
+C:\Build\Drivers  - Place all extracted (.inf) drivers here.
+C:\Build\Mount    - Create an empty folder to mount the image.
+
+Ensure the Windows ADK (Deployment Tools) is installed.
+
+--------------------------------------------------------------------------------
+2. INTEGRATING DRIVERS (OFFLINE SERVICING)
+--------------------------------------------------------------------------------
+Run PowerShell as Administrator.
+
+# Identify the Index of the Windows version you want (e.g., Pro, Home)
+dism /Get-WimInfo /WimFile:C:\Build\ISO\sources\install.wim
+
+# Mount the specific Index (replace '1' with your desired index)
+dism /Mount-Wim /WimFile:C:\Build\ISO\sources\install.wim /Index:1 /MountDir:C:\Build\Mount
+
+# Inject drivers from the folder (recursive)
+dism /Image:C:\Build\Mount /Add-Driver /Driver:C:\Build\Drivers /Recurse
+
+# Save changes and unmount
+dism /Unmount-Wim /MountDir:C:\Build\Mount /Commit
+
+--------------------------------------------------------------------------------
+3. CREATING THE ANSWER FILE (autounattend.xml)
+--------------------------------------------------------------------------------
+Open "Windows System Image Manager" (WSIM).
+Select File > Select Windows Image and choose the install.wim.
+Generate a Catalog file if prompted.
+
+KEY SETTINGS TO ADD:
+
+PASS 1 - WINDOWSPE:
+- amd64_Microsoft-Windows-Setup / DiskConfiguration:
+    * WillShowUI: Never
+- amd64_Microsoft-Windows-Setup / DiskConfiguration / Disk:
+    * DiskID: 0
+    * WillEraseDisk: true
+- amd64_Microsoft-Windows-Setup / UserData:
+    * AcceptEula: true
+
+PARTITIONING (UEFI Example):
+- Create Partition 1: Type=Primary, Size=500 (WinRE)
+- Create Partition 2: Type=EFI, Size=100 (System)
+- Create Partition 3: Type=MSR, Size=128 (MSR)
+- Create Partition 4: Type=Primary, Extend=true (Windows)
+
+PARTITIONING (BIOS Example):
+- Create Partition 1: Type=Primary, Size=500 (System Reserved), Active=true
+- Create Partition 2: Type=Primary, Extend=true (Windows)
+
+PASS 4 - SPECIALIZE:
+- amd64_Microsoft-Windows-Shell-Setup:
+    * ComputerName: *
+    * TimeZone: [Your Time Zone]
+
+PASS 7 - OOBESYSTEM:
+- amd64_Microsoft-Windows-Shell-Setup / OOBE:
+    * HideEULAPage: true
+    * HideLocalAdministrationPage: true
+    * HideOnlineIDFirstRunExperience: true
+    * HideWirelessSetupInOOBE: true
+    * ProtectYourPC: 1
+- amd64_Microsoft-Windows-Shell-Setup / UserAccounts / LocalAccounts:
+    * Create a New Local Account and add to 'Administrators' group.
+
+--------------------------------------------------------------------------------
+4. GENERATING THE ISO
+--------------------------------------------------------------------------------
+1. Save the Answer File as 'autounattend.xml' in the root of C:\Build\ISO.
+2. Open the "Deployment and Imaging Tools Environment" as Administrator.
+3. Run the following command:
+
+oscdimg -n -m -bC:\Build\ISO\boot\etfsboot.com C:\Build\ISO C:\Build\Custom_Windows.iso
+
+--------------------------------------------------------------------------------
+5. TEACHING TIPS
+--------------------------------------------------------------------------------
+- Ensure drivers are .inf format. .exe installers will not work with DISM.
+- Always validate the XML in WSIM (Tools > Validate) to check for missing required fields.
+- For UEFI, the disk must be GPT. For BIOS, it must be MBR.
+================================================================================
